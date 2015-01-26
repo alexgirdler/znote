@@ -1,0 +1,146 @@
+#!/bin/bash
+outfile=/dev/null
+daemon_mode=false
+compile_only=false
+masterfile=./master.pdc
+compile_singles=false
+verbose=false
+
+log() {
+  if $verbose; then
+    echo $1
+  fi
+}
+
+logvariables() {
+  if $verbose; then
+    echo "outfile = $outfile"
+    echo "daemon_mode = $daemon_mode"
+    echo "compile_only = $compile_only"
+    echo "masterfile = $masterfile"
+    echo "compile_singles = $compile_singles"
+  fi
+}
+
+watchfiles() {
+  while $daemon_mode; do
+    change=$(inotifywait -e close_write,moved_to,move_self,create ./pdc/*.pdc)
+    change=${change#./*/*}
+    change=$(echo $change | cut -d " " -f1 | cut -d "." -f1)
+    echo "$change Changed"
+    precompile $change
+  done
+}
+
+compile() {
+  filesin="$1"
+  fileout=$2
+  log "Compiling $1 to $2"
+  preprocess "$filesin" \
+    | tee $outfile \
+    | pandoc -s -S --toc -f markdown -o $fileout -V geometry:margin=1in
+}
+
+precompile() {
+  if $compile_singles; then
+    log "compiling singles"
+    if [ -z ${1+x} ]; then
+      for file in $(find ./pdc/*.pdc | cut -d "/" -f3 | cut -d "." -f1); do
+        log $file
+        filesin="./pdc/$file.pdc"
+        fileout="./pdf/$file.pdf"
+        compile $filesin $fileout
+      done
+    else
+      log $1
+      filesin="./pdc/$1.pdc"
+      fileout="./pdf/$1.pdf"
+      compile $filesin $fileout
+    fi
+  else
+    filesin='./pdc/*.pdc'
+    log "$filesin"
+    fileout="master.pdf"
+    if $compile_only; then
+      > $masterfile
+      preprocess $filesin >> $masterfile
+    else
+      log "compiling master"
+      compile "$filesin" $fileout
+    fi
+  fi
+}
+
+preprocess() {
+  awk '{ gsub(/^\$=>/, "$\\Rightarrow"); print}' $@ \
+    | awk '{print gensub(/\(([^/]*)\/([^/]*)\)/, "\\\\dfrac{\\1}{\\2}", "g");}' \
+    | awk '{ gsub(/\\inf/, "\\infty"); print}' \
+    | awk '{ gsub(/\\int_/, "\\int\\limits_"); print}' \
+    | awk '{ gsub(/\\sum_/, "\\sum\\limits_"); print}'
+   #| awk '{print gensub(/^\$([^$]*)\$\\?$/, "$$\\1$$", "g");}'
+}
+
+show_help() {
+  echo "-d --daemon Run continuously and recompile on file changed"
+  echo "-p --print=<file> print preprocessed notes to given file(defaults to compile-master.out)"
+  echo "-c --compile=<file> just compile all files together to master file(defaults to master.pdc)"
+  echo "-v verbose"
+}
+
+while getopts "h?pdcsv-:" opt; do
+  case "$opt" in
+    h|\?)
+      show_help
+      exit 0
+      ;;
+    p)
+      outfile=./compile-master.out
+      ;;
+    d)
+      daemon_mode=true
+      ;;
+    c)
+      compile_only=true
+      ;;
+    s)
+      compile_singles=true
+      ;;
+    v)
+      verbose=true
+      ;;
+    -)
+      case "${OPTARG}" in
+        daemon)
+          daemon_mode=true
+          ;;
+        alias)
+          echo "alias nnote='vim $(date +%d-%m-%y).pdc'"
+          exit 0
+          ;;
+        init)
+          echo "Creating source folders"
+          mkdir pdc
+          mkdir pdf
+          echo "Source folders created please add the following line to your profile."
+          echo "eval $(znote -alias)"
+          exit 0
+          ;;
+        print=*)
+          outfile=${OPTARG#*=}
+          ;;
+        compile=*)
+          masterfile=${OPTARG#*=}
+          ;;
+        *)
+          if [ "$OPTERR" = 1 ] && [ "${optspec:0:1}" != ":" ]; then
+            echo "Unknown option --${OPTARG}" >&2
+          fi
+          ;;
+      esac;;
+  esac
+done
+
+logvariables
+
+precompile
+watchfiles 
