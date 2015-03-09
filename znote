@@ -24,10 +24,11 @@ logvariables() {
 
 watchfiles() {
   while $daemon_mode; do
-    change=$(inotifywait -e close_write,moved_to,move_self,create ./pdc/*.pdc)
+    change=$(inotifywait -q -e close_write,moved_to,move_self,create ./pdc/*.pdc)
     change=${change#./*/*}
     change=$(echo $change | cut -d " " -f1 | cut -d "." -f1)
     echo "$change Changed"
+    sleep 1
     precompile $change
   done
 }
@@ -36,7 +37,9 @@ compile() {
   filesin="$1"
   fileout=$2
   log "Compiling $1 to $2"
-  preprocess "$filesin" \
+  #preprocess "$filesin" \
+    cat $filesin \
+    | ./znotec \
     | tee $outfile \
     | pandoc -s -S --toc -f markdown -o $fileout -V geometry:margin=1in
 }
@@ -45,7 +48,7 @@ precompile() {
   if $compile_singles; then
     log "compiling singles"
     if [ -z ${1+x} ]; then
-      for file in $(find ./pdc/*.pdc | cut -d "/" -f3 | cut -d "." -f1); do
+      for file in $(find ./pdc/*.pdc | sort | cut -d "/" -f3 | cut -d "." -f1); do
         log $file
         filesin="./pdc/$file.pdc"
         fileout="./pdf/$file.pdf"
@@ -71,11 +74,14 @@ precompile() {
   fi
 }
 
+
 preprocess() {
   awk '{ gsub(/^\$=>/, "$\\Rightarrow"); print}' $@ \
-    | awk '{print gensub(/\(([^/]*)\/([^/]*)\)/, "\\\\dfrac{\\1}{\\2}", "g");}' \
+    | awk '{print gensub(/\(([^/]*)\/([^/]*))/, "\\\\dfrac{\\1}{\\2}", "g");}' \
     | awk '{ gsub(/\\inf/, "\\infty"); print}' \
     | awk '{ gsub(/\\int_/, "\\int\\limits_"); print}' \
+    | awk '{ gsub(/\\sum0/, "\\sum\\limits_{n=0}^{\\infty}"); print}' \
+    | awk '{ gsub(/\\sum1/, "\\sum\\limits_{n=1}^{\\infty}"); print}' \
     | awk '{ gsub(/\\sum_/, "\\sum\\limits_"); print}'
    #| awk '{print gensub(/^\$([^$]*)\$\\?$/, "$$\\1$$", "g");}'
 }
