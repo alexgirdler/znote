@@ -1,7 +1,0 @@
-#!/bin/bash
-awk '{ gsub(/^\$=>/, "$\\Rightarrow"); print}' $@ \
-  | awk '{print gensub(/\(([^/]*)\/([^/]*)\)/, "\\\\dfrac{\\1}{\\2}", "g");}' \
-  | awk '{ gsub(/\\inf/, "\\infty"); print}' \
-  | awk '{ gsub(/\\int_/, "\\int\\limits_"); print}' \
-  | awk '{ gsub(/\\sum_/, "\\sum\\limits_"); print}'
-  #| awk '{print gensub(/^\$([^$]*)\$\\?$/, "$$\\1$$", "g");}'
